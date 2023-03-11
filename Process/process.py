@@ -10,8 +10,7 @@ def loadTree(dataname):
     treeDic = {}
     for line in open(treePath):
         line = line.rstrip()
-        eid, indexC, indexP = line.split('\t')[0], line.split('\t')[1], int(line.split('\t')[2])
-        #eid, indexP, indexC = line.split('\t')[0], line.split('\t')[1], int(line.split('\t')[2])
+        eid, indexP, indexC = line.split('\t')[0], line.split('\t')[1], int(line.split('\t')[2])
         max_degree, maxL, Vec = int(line.split('\t')[3]), int(line.split('\t')[4]), line.split('\t')[5]
         if not treeDic.__contains__(eid):
             treeDic[eid] = {}
