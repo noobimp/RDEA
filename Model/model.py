@@ -48,7 +48,7 @@ class FF(th.nn.Module):
         return self.block(x) + self.linear_shortcut(x)
 
 
-class Encoder(th.nn.Module):
+class Encoder(th.nn.Module): #5000, 64, 3
     def __init__(self, num_features, dim, num_gc_layers):
         super(Encoder, self).__init__()
 
@@ -76,7 +76,7 @@ class Encoder(th.nn.Module):
             x_one = F.relu(self.convs[i](x_one, edge_index))
             xs_one.append(x_one)
 
-        xpool_one = [global_mean_pool(x_one, batch) for x_one in xs_one]
+        xpool_one = [global_mean_pool(x_one, batch) for x_one in xs_one] #相当于每一层的图池化
         x_one = th.cat(xpool_one, 1)
         return x_one, th.cat(xs_one, 1)
 
@@ -140,7 +140,7 @@ def local_global_loss_(l_enc, g_enc, edge_index, batch, measure, l_enc_pos, l_en
     return E_neg - E_pos
 
 
-class Net(th.nn.Module):
+class Net(th.nn.Module): #64, 3
     def __init__(self, hidden_dim, num_gc_layers, alpha=0.5, beta=1., gamma=.1):
         super(Net, self).__init__()
 
@@ -195,7 +195,7 @@ class Net(th.nn.Module):
         return local_global_loss
 
 
-class Classfier(th.nn.Module):
+class Classfier(th.nn.Module): #64*3, 64, 4
     def __init__(self, in_feats, hid_feats, num_classes):
         super(Classfier, self).__init__()
         self.linear_one = th.nn.Linear(5000 * 2, 2 * hid_feats)
