@@ -16,6 +16,7 @@ import math
 import random
 from torch_geometric.utils import subgraph
 
+device = th.device('cuda:0' if th.cuda.is_available() else 'cpu')
 
 class PriorDiscriminator(th.nn.Module):
     def __init__(self, input_dim):
@@ -118,8 +119,8 @@ def local_global_loss_(l_enc, g_enc, edge_index, batch, measure, l_enc_pos, l_en
     num_graphs = g_enc.shape[0]
     num_nodes = l_enc.shape[0]
 
-    pos_mask = th.zeros((num_nodes, num_graphs)).cuda()
-    neg_mask = th.ones((num_nodes, num_graphs)).cuda()
+    pos_mask = th.zeros((num_nodes, num_graphs)).to(device)
+    neg_mask = th.ones((num_nodes, num_graphs)).to(device)
     for nodeidx, graphidx in enumerate(batch):
         pos_mask[nodeidx][graphidx] = 1.
         neg_mask[nodeidx][graphidx] = 0.
@@ -168,7 +169,7 @@ class Net(th.nn.Module):
         x, edge_index, dropped_edge_index, batch, num_graphs, mask = data.x, data.edge_index, data.dropped_edge_index, data.batch, max(
             data.batch) + 1, data.mask
         edge_sub, _ = subgraph(mask, edge_index)  # generate subgraph's edge index
-        node_mask = th.ones((x.size(0), 1)).cuda()
+        node_mask = th.ones((x.size(0), 1)).to(device)
         for i in range(x.size(0)):
             if random.random() >= 0.8:
                 node_mask[i] = 0
