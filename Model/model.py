@@ -138,8 +138,8 @@ def local_global_loss_(l_enc, g_enc, edge_index, batch, measure, l_enc_pos, l_en
     pos_mask = th.zeros((num_nodes, num_graphs)).to(device)
     #neg_mask = th.ones((num_nodes, num_graphs)).to(device)
     neg_mask = th.rand((num_nodes, num_graphs)).to(device)
-    neg_mask1[neg_mask1 >= (1.-4./num_graphs)] = 1 
-    neg_mask1[neg_mask1 < (1.-4./num_graphs)] = 0
+    neg_mask[neg_mask >= (1.-4./num_graphs)] = 1 
+    neg_mask[neg_mask < (1.-4./num_graphs)] = 0
     
     for nodeidx, graphidx in enumerate(batch):
         pos_mask[nodeidx][graphidx] = 1.
