@@ -56,36 +56,51 @@ class Encoder(th.nn.Module): #5000, 64, 3
 
         self.convs = th.nn.ModuleList()
         self.bns = th.nn.ModuleList()
-
+        self.node_att_mlp = th.nn.ModuleList()
+        self.edge_att_mlp = th.nn.ModuleList()
+        
         for i in range(num_gc_layers):
             if i:
                 nn = Sequential(Linear(dim, dim), ReLU(), Linear(dim, dim))
             else:
                 nn = Sequential(Linear(num_features, dim), ReLU(), Linear(dim, dim))
+            
             conv = GINConv(nn)
             bn = th.nn.BatchNorm1d(dim)
 
             self.convs.append(conv)
             self.bns.append(bn)
+            self.node_att_mlp.append(Linear(dim, 2))
+            self.edge_att_mlp.append(Linear(dim*2, 2))
 
     def forward(self, x, edge_index, batch):
 
         x_one = copy.deepcopy(x)
-        xs_one = []
+        xc_one = []
+        xo_one = []
         for i in range(self.num_gc_layers):
             x_one = F.relu(self.convs[i](x_one, edge_index))
-            xs_one.append(x_one)
+            if self.with_node_attention:
+                node_att = 0.5 * torch.ones(x_one.shape[0], 2).to(device)
+            else:
+                node_att = F.softmax(self.node_att_mlp[i](x_one), dim=-1)
+            xc = node_att[:, 0].view(-1, 1) * x_one
+            xo = node_att[:, 1].view(-1, 1) * x_one
+            xc_one.append(xc)
+            xo_one.append(xo)
 
-        xpool_one = [global_mean_pool(x_one, batch) for x_one in xs_one] #相当于每一层的图池化
-        x_one = th.cat(xpool_one, 1)
-        return x_one, th.cat(xs_one, 1)
+        xc_pool_one = [global_mean_pool(xc_one, batch) for xc_one in xc_one] #相当于每一层的图池化
+        xc_one = th.cat(xc_pool_one, 1)
+        xo_pool_one = [global_mean_pool(xo_one, batch) for xo_one in xo_one] #相当于每一层的图池化
+        xo_one = th.cat(xo_pool_one, 1)
+        return xo_one, th.cat(xo_one, 1), xc_one, th.cat(xc_one, 1),
 
     def get_embeddings(self, data):
 
         with th.no_grad():
             x, edge_index, batch = data.x, data.edge_index, data.batch
-            graph_embed, node_embed = self.forward(x, edge_index, batch)
-        return node_embed
+            go_emb, no_emb, gc_emb, nc_emb = self.forward(x, edge_index, batch)
+        return no_emb
 
 
 def get_positive_expectation(p_samples, measure, average=True):
@@ -166,8 +181,7 @@ class Net(th.nn.Module): #64, 3
 
     def forward(self, data):
 
-        x, edge_index, dropped_edge_index, batch, num_graphs, mask = data.x, data.edge_index, data.dropped_edge_index, data.batch, max(
-            data.batch) + 1, data.mask
+        x, edge_index, dropped_edge_index, batch, num_graphs, mask = data.x, data.edge_index, data.dropped_edge_index, data.batch, max(data.batch) + 1, data.mask
         edge_sub, _ = subgraph(mask, edge_index)  # generate subgraph's edge index
         node_mask = th.ones((x.size(0), 1)).to(device)
         for i in range(x.size(0)):
@@ -176,17 +190,18 @@ class Net(th.nn.Module): #64, 3
         node_mask[data.rootindex] = 1
         x_pos_two = x * node_mask  # mask node
 
-        y, M = self.encoder(x, edge_index, batch)  # y->num_graphs x dim; M->num_nodes x dim
-        y_pos, M_pos = self.encoder(x, edge_sub, batch)  # subgraph
-        y_dropped, M_dropped = self.encoder(x, dropped_edge_index, batch)  # drop edge
-        y_dropped_two, M_dropped_two = self.encoder(x_pos_two, edge_index, batch)  # mask_node
+        go, no, gc, nc = self.encoder(x, edge_index, batch)  # y->num_graphs x dim; M->num_nodes x dim
+        go1, no1,  gc1, nc1 = self.encoder(x, edge_sub, batch)  # subgraph
+        go2, no2, gc2, nc2 = self.encoder(x, dropped_edge_index, batch)  # drop edge
+        go3, no3, gc3, nc3 = self.encoder(x_pos_two, edge_index, batch)  # mask_node
 
-        g_enc = self.global_d(y)  # feed forward
-        l_enc = self.local_d(M)  # feed forward
-
-        l_enc_pos = self.local_d(M_pos)
-        l_enc_dropped = self.local_d(M_dropped)
-        l_enc_dropped_two = self.local_d(M_dropped_two)
+        go_enc = self.global_d(go)  # feed forward
+        gc_enc = self.global_d(gc) #?
+        
+        l_enc = self.local_d(no)  # feed forward
+        l_enc1 = self.local_d(no1)
+        l_enc2 = self.local_d(no2)
+        l_enc3 = self.local_d(no3)
 
         measure = 'JSD'
         local_global_loss = local_global_loss_(l_enc, g_enc, edge_index, batch, measure, l_enc_pos, l_enc_dropped,
