@@ -77,8 +77,8 @@ class Encoder(th.nn.Module): #5000, 64, 3
     def forward(self, x, edge_index, batch):
 
         x_one = copy.deepcopy(x)
-        xc_one = []
-        xo_one = []
+        xsc_one = []
+        xso_one = []
         for i in range(self.num_gc_layers):
             x_one = F.relu(self.convs[i](x_one, edge_index))
             if self.with_node_attention:
@@ -87,14 +87,14 @@ class Encoder(th.nn.Module): #5000, 64, 3
                 node_att = F.softmax(self.node_att_mlp[i](x_one), dim=-1)
             xc = node_att[:, 0].view(-1, 1) * x_one
             xo = node_att[:, 1].view(-1, 1) * x_one
-            xc_one.append(xc)
-            xo_one.append(xo)
+            xsc_one.append(xc)
+            xso_one.append(xo)
 
-        xc_pool_one = [global_mean_pool(xc_one, batch) for xc_one in xc_one] #相当于每一层的图池化
+        xc_pool_one = [global_mean_pool(xc_one, batch) for xc_one in xsc_one] #相当于每一层的图池化
         xc_one = th.cat(xc_pool_one, 1)
-        xo_pool_one = [global_mean_pool(xo_one, batch) for xo_one in xo_one] #相当于每一层的图池化
+        xo_pool_one = [global_mean_pool(xo_one, batch) for xo_one in xso_one] #相当于每一层的图池化
         xo_one = th.cat(xo_pool_one, 1)
-        return xo_one, th.cat(xo_one, 1), xc_one, th.cat(xc_one, 1),
+        return xo_one, th.cat(xso_one, 1), xc_one, th.cat(xsc_one, 1),
 
     def get_embeddings(self, data):
 
