@@ -135,11 +135,19 @@ def local_global_loss_(l_enc, g_enc, edge_index, batch, measure, l_enc_pos, l_en
     num_nodes = l_enc.shape[0]
 
     pos_mask = th.zeros((num_nodes, num_graphs)).to(device)
-    neg_mask = th.ones((num_nodes, num_graphs)).to(device)
+    #neg_mask = th.ones((num_nodes, num_graphs)).to(device)
+    neg_mask = th.rand((num_nodes, num_graphs)).to(device)
+    neg_mask1[neg_mask1 >= (1.-4./num_graphs)] = 1 
+    neg_mask1[neg_mask1 < (1.-4./num_graphs)] = 0
+    
     for nodeidx, graphidx in enumerate(batch):
         pos_mask[nodeidx][graphidx] = 1.
         neg_mask[nodeidx][graphidx] = 0.
-
+        #以防全为0
+        if graphidx > 1: neg_mask[nodeidx][graphidx-1] = 1.
+        else: neg_mask[nodeidx][graphidx+1] = 1.
+    num_neg = th.count_nonzero(neg_mask)
+    
     res = th.mm(l_enc, g_enc.t())
     res_two = th.mm(l_enc_pos, g_enc.t())
     res_three = th.mm(l_enc_dropped, g_enc.t())
@@ -150,7 +158,7 @@ def local_global_loss_(l_enc, g_enc, edge_index, batch, measure, l_enc_pos, l_en
     E_pos = E_pos / num_nodes
 
     E_neg = get_negative_expectation(res * neg_mask, measure, average=False).sum()
-    E_neg = E_neg / (num_nodes * (num_graphs - 1))
+    E_neg = E_neg / num_neg #(num_nodes * (num_graphs - 1))
 
     return E_neg - E_pos
 
@@ -196,7 +204,7 @@ class Net(th.nn.Module): #64, 3
         go3, no3, gc3, nc3 = self.encoder(x_pos_two, edge_index, batch)  # mask_node
 
         go_enc = self.global_d(go)  # feed forward
-        gc_enc = self.global_d(gc) #?
+        #gc_enc = self.global_d(gc) #?
         
         l_enc = self.local_d(no)  # feed forward
         l_enc1 = self.local_d(no1)
