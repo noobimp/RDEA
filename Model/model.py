@@ -213,8 +213,7 @@ class Net(th.nn.Module): #64, 3
         l_enc3 = self.local_d(no3)
 
         measure = 'JSD'
-        local_global_loss = local_global_loss_(l_enc, g_enc, edge_index, batch, measure, l_enc_pos, l_enc_dropped,
-                                               l_enc_dropped_two)
+        local_global_loss = local_global_loss_(l_enc, go_enc, edge_index, batch, measure, l_enc1, l_enc2, l_enc3)
 
         return local_global_loss
 
