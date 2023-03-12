@@ -70,6 +70,7 @@ class Encoder(th.nn.Module): #5000, 64, 3
 
             self.convs.append(conv)
             self.bns.append(bn)
+            self.with_node_attention = 1 #args.with_node_attention
             self.node_att_mlp.append(Linear(dim, 2))
             self.edge_att_mlp.append(Linear(dim*2, 2))
 
