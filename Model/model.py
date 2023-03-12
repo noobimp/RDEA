@@ -82,7 +82,7 @@ class Encoder(th.nn.Module): #5000, 64, 3
         for i in range(self.num_gc_layers):
             x_one = F.relu(self.convs[i](x_one, edge_index))
             if self.with_node_attention:
-                node_att = 0.5 * torch.ones(x_one.shape[0], 2).to(device)
+                node_att = 0.5 * th.ones(x_one.shape[0], 2).to(device)
             else:
                 node_att = F.softmax(self.node_att_mlp[i](x_one), dim=-1)
             xc = node_att[:, 0].view(-1, 1) * x_one
