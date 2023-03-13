@@ -180,6 +180,17 @@ NR_F1 = []
 FR_F1 = []
 TR_F1 = []
 UR_F1 = []
+
+def init_seeds(seed=2023):
+    torch.manual_seed(seed)  # sets the seed for generating random numbers.
+    torch.cuda.manual_seed(seed)  # Sets the seed for generating random numbers for the current GPU. It’s safe to call this function if CUDA is not available; in that case, it is silently ignored.
+    torch.cuda.manual_seed_all(seed)  # Sets the seed for generating random numbers on all GPUs. It’s safe to call this function if CUDA is not available; in that case, it is silently ignored.
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    print("Init_seeds....", seed)
+    
+init_seeds(2023)
+
 for iter in range(iterations):
     fold0_x_test, fold0_x_train, \
     fold1_x_test,  fold1_x_train,  \
