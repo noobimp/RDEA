@@ -87,8 +87,8 @@ def classify(treeDic, x_test, x_train, TDdroprate, BUdroprate, lr, weight_decay,
             correct = pred.eq(Batch_data.y).sum().item()
             train_acc = correct / len(Batch_data.y)
             avg_acc.append(train_acc)
-            print("Iter {:03d} | Epoch {:05d} | Batch{:02d} | Train_Loss {:.4f} | Train_gc_Loss {:.4f} | Train_Accuracy {:.4f}".format(iter,epoch, batch_idx,
-                                                                                                 loss.item(), gc_loss,
+            print("Iter {:03d} | Epoch {:05d} | Batch{:02d} | Train_Loss {:.4f} | Train_Accuracy {:.4f}".format(iter,epoch, batch_idx,
+                                                                                                 loss.item(), 
                                                                                                  train_acc))
             batch_idx = batch_idx + 1
             
