@@ -49,7 +49,7 @@ class FF(th.nn.Module):
 
 
 class Encoder(th.nn.Module): #5000, 64, 3
-    def __init__(self, num_features, dim, num_gc_layers):
+    def __init__(self, args, num_features, dim, num_gc_layers):
         super(Encoder, self).__init__()
 
         self.num_gc_layers = num_gc_layers
@@ -166,7 +166,7 @@ def local_global_loss_(l_enc, g_enc, edge_index, batch, measure, l_enc_pos, l_en
 
 
 class Net(th.nn.Module): #64, 3
-    def __init__(self, hidden_dim, num_gc_layers, alpha=0.5, beta=1., gamma=.1):
+    def __init__(self, args, hidden_dim, num_gc_layers, alpha=0.5, beta=1., gamma=.1):
         super(Net, self).__init__()
 
         self.alpha = alpha
@@ -220,7 +220,7 @@ class Net(th.nn.Module): #64, 3
 
 
 class Classfier(th.nn.Module): #64*3, 64, 4
-    def __init__(self, in_feats, hid_feats, num_classes):
+    def __init__(self, args, in_feats, hid_feats, num_classes):
         super(Classfier, self).__init__()
         self.linear_one = th.nn.Linear(5000 * 2, 2 * hid_feats)
         self.linear_two = th.nn.Linear(2 * hid_feats, hid_feats)
