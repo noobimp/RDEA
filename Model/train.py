@@ -76,7 +76,7 @@ def classify(treeDic, x_test, x_train, TDdroprate, BUdroprate, lr, weight_decay,
         for Batch_data in tqdm_train_loader:
             Batch_data.to(args.device)
             _, Batch_embed, _, xc_embed = unsup_model.encoder(Batch_data.x, Batch_data.edge_index, Batch_data.batch)
-            out_labels, xc_labels = model(Batch_embed, xc_embed, Batch_data)
+            out_labels, xc_labels = model(Batch_embed, Batch_data)
             finalloss=F.nll_loss(out_labels, Batch_data.y)
             loss=finalloss
             opt.zero_grad()
