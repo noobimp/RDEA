@@ -107,7 +107,7 @@ def classify(treeDic, x_test, x_train, TDdroprate, BUdroprate, lr, weight_decay,
         for Batch_data in tqdm_test_loader:
             Batch_data.to(args.device)
             Batch_embed = unsup_model.encoder.get_embeddings(Batch_data)
-            val_out = model(Batch_embed, xc_embed, Batch_data)
+            val_out = model(Batch_embed, Batch_data)
             val_loss  = F.nll_loss(val_out, Batch_data.y)
             temp_val_losses.append(val_loss.item())
             _, val_pred = val_out.max(dim=1)
