@@ -12,15 +12,14 @@ from tools.evaluate import *
 import time
 from tensorboardX import SummaryWriter
 from Model.model import *
+import argparse
 
 
+def classify(treeDic, x_test, x_train, TDdroprate, BUdroprate, lr, weight_decay, patience, n_epochs, batchsize, dataname, iter, fold_count, args):
 
-def classify(treeDic, x_test  , x_train,TDdroprate,BUdroprate,lr, weight_decay,patience,n_epochs,batchsize,dataname,iter, fold_count):
-
-    unsup_model = Net(64, 3).to(device)
-
-    for unsup_epoch in range(25):
-
+    unsup_model = Net(args, 64, args.layers).to(args.device)
+    loss = 0
+    for unsup_epoch in range(args.unsup_epoch):
         optimizer = th.optim.Adam(unsup_model.parameters(), lr=lr, weight_decay=weight_decay)
         unsup_model.train()
         traindata_list, _ = loadBiData(dataname, treeDic, x_train+x_test, x_test, 0.2, 0.2)
@@ -30,7 +29,7 @@ def classify(treeDic, x_test  , x_train,TDdroprate,BUdroprate,lr, weight_decay,p
         tqdm_train_loader = tqdm(train_loader)
         for Batch_data in tqdm_train_loader:
             optimizer.zero_grad()
-            Batch_data = Batch_data.to(device)
+            Batch_data = Batch_data.to(args.device)
             loss = unsup_model(Batch_data)
             loss_all += loss.item() * (max(Batch_data.batch) + 1)
 
@@ -38,27 +37,34 @@ def classify(treeDic, x_test  , x_train,TDdroprate,BUdroprate,lr, weight_decay,p
             optimizer.step()
             batch_idx = batch_idx + 1
         loss = loss_all / len(train_loader)
-    name = "best_pre_"+dataname +"_4unsup" + ".pkl"
+        print('unsup_epoch:', (unsup_epoch) ,'   loss:', loss)
+    name = "best_pre_"+ dataname +"_4unsup" + ".pkl"
     th.save(unsup_model.state_dict(), name)
     print('Finished the unsuperivised training.', '  Loss:', loss)
     print("Start classify!!!")
     # unsup_model.eval()
 
-    log_train = 'logs/' + datasetname + '/' + 'train' + 'iter_' + str(iter)
-    writer_train = SummaryWriter(log_train)
-    log_test = 'logs/' + datasetname + '/' + 'test' + 'iter_' + str(iter)
-    writer_test = SummaryWriter(log_test)
-
-    model = Classfier(64*3,64,4).to(device)
-    opt = th.optim.Adam(model.parameters(), lr=0.0005, weight_decay=weight_decay)
+    model = Classfier(args, 64*args.layers, 64, args.num_class).to(args.device)
+    if args.fine_tune_lr:
+        opt = th.optim.Adam(
+            [{'params':unsup_model.parameters(), 'lr':args.fine_tune_lr},
+            {'params':model.parameters(), 'lr':lr}], 
+            weight_decay=weight_decay)
+    else:
+        opt = th.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     train_losses = []
     val_losses = []
     train_accs = []
     val_accs = []
-    early_stopping = EarlyStopping(patience=10, verbose=True)
+    x_train_full = x_train
+    early_stopping = EarlyStopping(patience=patience, verbose=True)
     for epoch in range(n_epochs):
-        traindata_list, testdata_list = loadBiData(dataname, treeDic, x_train, x_test, TDdroprate,BUdroprate)
+        if args.per<1.:
+            lim = max(1, int(len(x_train_full)*args.per))
+            x_train = x_train_full[0:lim]
+            print("classifier train len: ", len(x_train))
+        traindata_list, testdata_list = loadBiData(dataname, treeDic, x_train, x_test, TDdroprate, BUdroprate)
         train_loader = DataLoader(traindata_list, batch_size=batchsize, shuffle=True, num_workers=4)
         test_loader = DataLoader(testdata_list, batch_size=batchsize, shuffle=True, num_workers=4)
         avg_loss = []
@@ -68,10 +74,10 @@ def classify(treeDic, x_test  , x_train,TDdroprate,BUdroprate,lr, weight_decay,p
         model.train()
         unsup_model.train()
         for Batch_data in tqdm_train_loader:
-            Batch_data.to(device)
-            _, Batch_embed, _, _ = unsup_model.encoder(Batch_data.x, Batch_data.edge_index, Batch_data.batch)
-            out_labels= model(Batch_embed, Batch_data)
-            finalloss=F.nll_loss(out_labels,Batch_data.y)
+            Batch_data.to(args.device)
+            _, Batch_embed, _, xc_embed = unsup_model.encoder(Batch_data.x, Batch_data.edge_index, Batch_data.batch)
+            out_labels, xc_labels = model(Batch_embed, xc_embed, Batch_data)
+            finalloss=F.nll_loss(out_labels, Batch_data.y)
             loss=finalloss
             opt.zero_grad()
             loss.backward()
@@ -81,13 +87,11 @@ def classify(treeDic, x_test  , x_train,TDdroprate,BUdroprate,lr, weight_decay,p
             correct = pred.eq(Batch_data.y).sum().item()
             train_acc = correct / len(Batch_data.y)
             avg_acc.append(train_acc)
-            print("Iter {:03d} | Epoch {:05d} | Batch{:02d} | Train_Loss {:.4f}| Train_Accuracy {:.4f}".format(iter,epoch, batch_idx,
-                                                                                                 loss.item(),
+            print("Iter {:03d} | Epoch {:05d} | Batch{:02d} | Train_Loss {:.4f} | Train_gc_Loss {:.4f} | Train_Accuracy {:.4f}".format(iter,epoch, batch_idx,
+                                                                                                 loss.item(), gc_loss,
                                                                                                  train_acc))
             batch_idx = batch_idx + 1
             
-        writer_train.add_scalar('train_loss', np.mean(avg_loss), global_step=epoch+1)
-        writer_train.add_scalar('train_acc', np.mean(avg_acc), global_step=epoch+1)
         train_losses.append(np.mean(avg_loss))
         train_accs.append(np.mean(avg_acc))
 
@@ -101,9 +105,9 @@ def classify(treeDic, x_test  , x_train,TDdroprate,BUdroprate,lr, weight_decay,p
         unsup_model.eval()
         tqdm_test_loader = tqdm(test_loader)
         for Batch_data in tqdm_test_loader:
-            Batch_data.to(device)
-            Batch_embed = unsup_model.encoder.get_embeddings(Batch_data)
-            val_out = model(Batch_embed, Batch_data)
+            Batch_data.to(args.device)
+            Batch_embed, xc_embed = unsup_model.encoder.get_embeddings(Batch_data)
+            val_out, xc_out = model(Batch_embed, xc_embed, Batch_data)
             val_loss  = F.nll_loss(val_out, Batch_data.y)
             temp_val_losses.append(val_loss.item())
             _, val_pred = val_out.max(dim=1)
@@ -120,12 +124,10 @@ def classify(treeDic, x_test  , x_train,TDdroprate,BUdroprate,lr, weight_decay,p
             temp_val_Acc4.append(Acc4), temp_val_Prec4.append(Prec4), temp_val_Recll4.append(
                 Recll4), temp_val_F4.append(F4)
             temp_val_accs.append(val_acc)
-        writer_test.add_scalar('val_loss', np.mean(temp_val_losses), global_step=epoch+1)
-        writer_test.add_scalar('val_accs', np.mean(temp_val_accs), global_step=epoch+1)
         val_losses.append(np.mean(temp_val_losses))
         val_accs.append(np.mean(temp_val_accs))
-        print("Epoch {:05d} | Val_Loss {:.4f}| Val_Accuracy {:.4f}".format(epoch, np.mean(temp_val_losses),
-                                                                           np.mean(temp_val_accs)))
+        print("Epoch {:05d} | Val_Loss {:.4f}| Val_Accuracy {:.4f} | fold {:d}".format(epoch, np.mean(temp_val_losses),
+                                                                           np.mean(temp_val_accs), fold_count))
 
         res = ['acc:{:.4f}'.format(np.mean(temp_val_Acc_all)),
                'C1:{:.4f},{:.4f},{:.4f},{:.4f}'.format(np.mean(temp_val_Acc1), np.mean(temp_val_Prec1),
@@ -136,7 +138,7 @@ def classify(treeDic, x_test  , x_train,TDdroprate,BUdroprate,lr, weight_decay,p
                                                        np.mean(temp_val_Recll3), np.mean(temp_val_F3)),
                'C4:{:.4f},{:.4f},{:.4f},{:.4f}'.format(np.mean(temp_val_Acc4), np.mean(temp_val_Prec4),
                                                        np.mean(temp_val_Recll4), np.mean(temp_val_F4))]
-        print('unsup_epoch:', (unsup_epoch+1) ,'   results:', res)
+        print('results:', res)
         early_stopping(np.mean(temp_val_losses), np.mean(temp_val_accs), np.mean(temp_val_F1), np.mean(temp_val_F2),
                        np.mean(temp_val_F3), np.mean(temp_val_F4), model, 'RDEA_'+str(fold_count)+'_', dataname)
         accs =np.mean(temp_val_accs)
@@ -162,105 +164,120 @@ def classify(treeDic, x_test  , x_train,TDdroprate,BUdroprate,lr, weight_decay,p
 
 
 
-lr=0.0005
-weight_decay=1e-4
-patience=10
-batchsize=128
-TDdroprate=0.4
-BUdroprate=0.4
-datasetname=sys.argv[1] #"Twitter15"、"Twitter16"
-iterations=int(sys.argv[2])
-model="RDEA"
-device = th.device('cuda:0' if th.cuda.is_available() else 'cpu')
 
-n_epochs=200
-# for unsup_epoch in range(30):
-test_accs = []
-NR_F1 = []
-FR_F1 = []
-TR_F1 = []
-UR_F1 = []
-
-def init_seeds(seed=2023):
-    torch.manual_seed(seed)  # sets the seed for generating random numbers.
-    torch.cuda.manual_seed(seed)  # Sets the seed for generating random numbers for the current GPU. It’s safe to call this function if CUDA is not available; in that case, it is silently ignored.
-    torch.cuda.manual_seed_all(seed)  # Sets the seed for generating random numbers on all GPUs. It’s safe to call this function if CUDA is not available; in that case, it is silently ignored.
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    print("Init_seeds....", seed)
+def init_seed(seed=2023):
+    th.manual_seed(seed)  # sets the seed for generating random numbers.
+    th.cuda.manual_seed(seed)  # Sets the seed for generating random numbers for the current GPU. It’s safe to call this function if CUDA is not available; in that case, it is silently ignored.
+    th.cuda.manual_seed_all(seed)  # Sets the seed for generating random numbers on all GPUs. It’s safe to call this function if CUDA is not available; in that case, it is silently ignored.
+    th.backends.cudnn.deterministic = True
+    th.backends.cudnn.benchmark = False
+    np.random.seed(seed)
+    random.seed(seed)
+    print("Init_seed....", seed)
     
-init_seeds(2023)
+    
+if __name__ == '__main__':
 
-for iter in range(iterations):
-    fold0_x_test, fold0_x_train, \
-    fold1_x_test,  fold1_x_train,  \
-    fold2_x_test, fold2_x_train, \
-    fold3_x_test, fold3_x_train, \
-    fold4_x_test,fold4_x_train = load5foldData(datasetname)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--lr', type=float, default=0.0005, metavar='lr', help='lr')
+    parser.add_argument('--fine_tune_lr', type=float, default=0., metavar='fine_tune_lr', help='fine_tune_lr')
+    parser.add_argument('--weight_decay', type=float, default='1e-4', metavar='weight_decay', help='weight_decay')
+    parser.add_argument('--patience', type=int, default=10, metavar='patience', help='patience')
+    parser.add_argument('--batchsize', type=int, default=128, metavar='batchsize', help='batchsize')
+    parser.add_argument('--n_epochs', type=int, default=200, metavar='n_epochs', help='n_epochs')
+    parser.add_argument('--TDdroprate', type=float, default=0.4, metavar='TDdroprate', help='TDdroprate')
+    parser.add_argument('--BUdroprate', type=float, default=0.4, metavar='BUdroprate', help='BUdroprate') #没用
+    parser.add_argument('--datasetname', type=str, default="Twitter16", metavar='datasetname', help='datasetname') #"Twitter15"、"Twitter16"
+    parser.add_argument('--num_class', type=int, default=4, metavar='num_class', help='num_class')
+    parser.add_argument('--iterations', type=int, default=1, metavar='iterations', help='iterations') 
+    parser.add_argument('--unsup_epoch', type=int, default=25, metavar='unsup_epoch', help='unsup_epoch')
+    parser.add_argument('--layers', type=int, default=3, metavar='layers', help='layers') 
+    parser.add_argument('--seed', type=int, default=2023, metavar='seed', help='seed')
+    parser.add_argument('--per', type=float, default=1., metavar='per', help='per')
+    
+    
+#     parser.add_argument('--with_random', type=int, default=0, metavar='with_random', help='if add random')
+#     parser.add_argument('--add_or_cat', type=str, default='add', metavar='add_or_cat', help='add_or_cat')
+    
+    args, unknown = parser.parse_known_args()
+    
+    args.device = th.device('cuda:0' if th.cuda.is_available() else 'cpu')
+    #args.device = device
+    print(args)
+    init_seed(seed=args.seed)
+    
+    test_accs = []
+    NR_F1 = []
+    FR_F1 = []
+    TR_F1 = []
+    UR_F1 = []
+    for iter in range(args.iterations):
+        fold0_x_test, fold0_x_train, \
+        fold1_x_test,  fold1_x_train,  \
+        fold2_x_test, fold2_x_train, \
+        fold3_x_test, fold3_x_train, \
+        fold4_x_test,fold4_x_train = load5foldData(args.datasetname)
 
-    treeDic=loadTree(datasetname)
-    t1 = time.time()
-    train_losses, val_losses, train_accs, val_accs0, accs0, F1_0, F2_0, F3_0, F4_0 = classify(treeDic,
-                                                                                               fold0_x_test,
-                                                                                               fold0_x_train,
-                                                                                               TDdroprate,BUdroprate,
-                                                                                               lr, weight_decay,
-                                                                                               patience,
-                                                                                               n_epochs,
-                                                                                               batchsize,
-                                                                                               datasetname,
-                                                                                               iter, 0)
-    train_losses, val_losses, train_accs, val_accs1, accs1, F1_1, F2_1, F3_1, F4_1 = classify(treeDic,
-                                                                                               fold1_x_test,
-                                                                                               fold1_x_train,
-                                                                                               TDdroprate,BUdroprate, lr,
-                                                                                               weight_decay,
-                                                                                               patience,
-                                                                                               n_epochs,
-                                                                                               batchsize,
-                                                                                               datasetname,
-                                                                                               iter, 1)
-    train_losses, val_losses, train_accs, val_accs2, accs2, F1_2, F2_2, F3_2, F4_2 = classify(treeDic,
-                                                                                               fold2_x_test,
-                                                                                               fold2_x_train,
-                                                                                               TDdroprate,BUdroprate, lr,
-                                                                                               weight_decay,
-                                                                                               patience,
-                                                                                               n_epochs,
-                                                                                               batchsize,
-                                                                                               datasetname,
-                                                                                               iter, 2)
-    train_losses, val_losses, train_accs, val_accs3, accs3, F1_3, F2_3, F3_3, F4_3 = classify(treeDic,
-                                                                                               fold3_x_test,
-                                                                                               fold3_x_train,
-                                                                                               TDdroprate,BUdroprate, lr,
-                                                                                               weight_decay,
-                                                                                               patience,
-                                                                                               n_epochs,
-                                                                                               batchsize,
-                                                                                               datasetname,
-                                                                                               iter, 3)
-    train_losses, val_losses, train_accs, val_accs4, accs4, F1_4, F2_4, F3_4, F4_4 = classify(treeDic,
-                                                                                               fold4_x_test,
-                                                                                               fold4_x_train,
-                                                                                               TDdroprate,BUdroprate, lr,
-                                                                                               weight_decay,
-                                                                                               patience,
-                                                                                               n_epochs,
-                                                                                               batchsize,
-                                                                                               datasetname,
-                                                                                               iter, 4)
-    test_accs.append((accs0+accs1+accs2+accs3+accs4)/5)
-    NR_F1.append((F1_0+F1_1+F1_2+F1_3+F1_4)/5)
-    FR_F1.append((F2_0 + F2_1 + F2_2 + F2_3 + F2_4) / 5)
-    TR_F1.append((F3_0 + F3_1 + F3_2 + F3_3 + F3_4) / 5)
-    UR_F1.append((F4_0 + F4_1 + F4_2 + F4_3 + F4_4) / 5)
-    print("check  iter: {:04d} | aaaaaccs: {:.4f}".format(iter, test_accs[iter]))
-    t2 = time.time()
-    print("total time:")
-    print(t2 - t1)
-print("Total_Test_Accuracy: {:.4f}|NR F1: {:.4f}|FR F1: {:.4f}|TR F1: {:.4f}|UR F1: {:.4f}".format(
-    sum(test_accs) / iterations, sum(NR_F1) /iterations, sum(FR_F1) /iterations, sum(TR_F1) / iterations, sum(UR_F1) / iterations))
-
-
-
+        treeDic=loadTree(args.datasetname)
+        t1 = time.time()
+        train_losses, val_losses, train_accs, val_accs0, accs0, F1_0, F2_0, F3_0, F4_0 = classify(treeDic,
+                                                                                                   fold0_x_test,
+                                                                                                   fold0_x_train,
+                                                                                                   args.TDdroprate, args.BUdroprate,
+                                                                                                   args.lr, args.weight_decay,
+                                                                                                   args.patience,
+                                                                                                   args.n_epochs,
+                                                                                                   args.batchsize,
+                                                                                                   args.datasetname,
+                                                                                                   iter, 0, args)
+        train_losses, val_losses, train_accs, val_accs1, accs1, F1_1, F2_1, F3_1, F4_1 = classify(treeDic,
+                                                                                                   fold1_x_test,
+                                                                                                   fold1_x_train,
+                                                                                                   args.TDdroprate, args.BUdroprate,
+                                                                                                   args.lr, args.weight_decay,
+                                                                                                   args.patience,
+                                                                                                   args.n_epochs,
+                                                                                                   args.batchsize,
+                                                                                                   args.datasetname,
+                                                                                                   iter, 1, args)
+        train_losses, val_losses, train_accs, val_accs2, accs2, F1_2, F2_2, F3_2, F4_2 = classify(treeDic,
+                                                                                                   fold2_x_test,
+                                                                                                   fold2_x_train,
+                                                                                                   args.TDdroprate, args.BUdroprate,
+                                                                                                   args.lr, args.weight_decay,
+                                                                                                   args.patience,
+                                                                                                   args.n_epochs,
+                                                                                                   args.batchsize,
+                                                                                                   args.datasetname,
+                                                                                                   iter, 2,  args)
+        train_losses, val_losses, train_accs, val_accs3, accs3, F1_3, F2_3, F3_3, F4_3 = classify(treeDic,
+                                                                                                   fold3_x_test,
+                                                                                                   fold3_x_train,
+                                                                                                   args.TDdroprate, args.BUdroprate,
+                                                                                                   args.lr, args.weight_decay,
+                                                                                                   args.patience,
+                                                                                                   args.n_epochs,
+                                                                                                   args.batchsize,
+                                                                                                   args.datasetname,
+                                                                                                   iter, 3, args)
+        train_losses, val_losses, train_accs, val_accs4, accs4, F1_4, F2_4, F3_4, F4_4 = classify(treeDic,
+                                                                                                   fold4_x_test,
+                                                                                                   fold4_x_train,
+                                                                                                   args.TDdroprate, args.BUdroprate,
+                                                                                                   args.lr, args.weight_decay,
+                                                                                                   args.patience,
+                                                                                                   args.n_epochs,
+                                                                                                   args.batchsize,
+                                                                                                   args.datasetname,
+                                                                                                   iter, 4, args)
+        test_accs.append((accs0+accs1+accs2+accs3+accs4)/5)
+        NR_F1.append((F1_0+F1_1+F1_2+F1_3+F1_4)/5)
+        FR_F1.append((F2_0 + F2_1 + F2_2 + F2_3 + F2_4) / 5)
+        TR_F1.append((F3_0 + F3_1 + F3_2 + F3_3 + F3_4) / 5)
+        UR_F1.append((F4_0 + F4_1 + F4_2 + F4_3 + F4_4) / 5)
+        print("check  iter: {:04d} | aaaaaccs: {:.4f}".format(iter, test_accs[iter]))
+        t2 = time.time()
+        print("total time:")
+        print(t2 - t1)
+    print("Total_Test_Accuracy: {:.4f}|NR F1: {:.4f}|FR F1: {:.4f}|TR F1: {:.4f}|UR F1: {:.4f}".format(
+        sum(test_accs)/args.iterations, sum(NR_F1)/args.iterations, sum(FR_F1)/args.iterations, sum(TR_F1)/args.iterations, sum(UR_F1)/args.iterations))
