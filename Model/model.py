@@ -174,7 +174,7 @@ class Net(th.nn.Module): #64, 3
         self.gamma = gamma
 
         self.embedding_dim = mi_units = hidden_dim * num_gc_layers
-        self.encoder = Encoder(5000, hidden_dim, num_gc_layers)
+        self.encoder = Encoder(args, 5000, hidden_dim, num_gc_layers)
 
         self.local_d = FF(self.embedding_dim)  # Feed forward layer
         self.global_d = FF(self.embedding_dim)  # Feed forward layer
